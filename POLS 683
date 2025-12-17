@@ -1,6 +1,7 @@
 title: "Weber final paper"
 output: html_document
 date: "2025-12-15"
+**There was an R crash, this is reconstructed from what I had in my script notes**
 ---
 CCES 2020 
 cces20 <- read_dta("/Users/haileystepp/Desktop/Mixed Race Research/2Yr: Skin Tone Paper (2020)/CCES 2020/CES20_Common_OUTPUT_vv.dta")
