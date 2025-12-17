@@ -1,0 +1,396 @@
+---
+title: "Bartos Final Code"
+output: pdf_document
+date: "2025-12-16"
+***My RStudio Crashed, this is what was recovered from scripts**
+CCES 2020 
+cces20 <- read_dta("/Users/haileystepp/Desktop/Mixed Race Research/2Yr: Skin Tone Paper (2020)/CCES 2020/CES20_Common_OUTPUT_vv.dta")
+library(dplyr)
+
+cces20 <- cces20 %>%
+  mutate(
+    race_label = case_when(
+      race == 1 ~ "White",
+      race == 2 ~ "Black",
+      race == 3 ~ "Hispanic/Latino",
+      race == 4 ~ "Asian",
+      race == 5 ~ "Native American",
+      race == 6 ~ "Two or more races",
+      race == 7 ~ "Other",
+      race == 8 ~ "Middle Eastern",
+      TRUE ~ NA_character_
+    )
+  )
+-------------------
+#Multiracial Count
+  # Identify Black–White biracials
+  cces20 <- cces20 %>%
+  mutate(
+    bw_cces   = ifelse(multrace_1 == 1 & multrace_2 == 1, 1, 0),
+  )
+# Count primary racial identification
+BW_primary_counts <- cces20 %>%
+  filter(BW_biracial == 1) %>%
+  mutate(
+    Primary_Race = case_when(
+      race == 1 ~ "White Primary",
+      race == 2 ~ "Black Primary",
+      race == 6 ~ "Multiracial Primary",
+      TRUE ~ "NA"
+    )
+  ) %>%
+  count(Primary_Race)
+
+BW_primary_counts
+--------------------
+#District Variable 
+cces20 <- cces20 %>%
+mutate(district = cdid116) 
+------------------
+#District Racial Variable 
+  district_race <- cces20 %>%
+  filter(!is.na(district), !is.na(race_label)) %>%
+  group_by(district, race_label) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(district) %>%
+  mutate(prop = n / sum(n)) %>%
+  select(district, race_label, prop)
+-----------------
+#District Partsianship Instrument 
+  district_pid <- cces20 %>%
+  filter(!is.na(district), pid3 %in% c(1,2,3)) %>%
+  mutate(
+    pid3_label = case_when(
+      pid3 == 1 ~ "Democrat",
+      pid3 == 2 ~ "Independent",
+      pid3 == 3 ~ "Republican"
+    )
+  ) %>%
+  group_by(district, pid3_label) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(district) %>%
+  mutate(prop = n / sum(n)) %>%
+  select(district, pid3_label, prop)
+#Instrument Data Set 
+instruments_df <- list(district_race, district_pid) %>%
+  reduce(full_join, by = "district")
+-------
+#MERGE TIME
+  library(dplyr)
+district_race_clean <- district_race %>%
+  rename(district = district,
+         race = race_label,
+         race_prop = prop)
+
+district_pid_clean <- district_pid %>%
+  rename(district = district,
+         pid = pid3_label,
+         pid_prop = prop)
+---------------------------
+  district_race_wide <- district_race_clean %>%
+  tidyr::pivot_wider(
+    names_from = race,
+    values_from = race_prop,
+    names_prefix = "race_"
+  )
+--------------------
+  district_pid_wide <- district_pid_clean %>%
+  tidyr::pivot_wider(
+    names_from = pid,
+    values_from = pid_prop,
+    names_prefix = "pid_"
+  )
+---------------------
+  instruments_df <- district_race_wide %>%
+  left_join(district_pid_wide, by = "district")
+CMPS_2020 <- read_dta("/Users/haileystepp/Desktop/.../your_cmps_file.dta")
+
+CMPS_final_instrumented <- CMPS_2020 %>% 
+  left_join(instruments_df, by="district")
+bw_all <- CMPS_final_instrumented %>%
+  filter(bw_biracial==1 | (S2_Racer1==1 & S2_Racer3==1)) %>%
+  droplevels()
+bw_all <- bw_all %>%
+  # PID indicators
+  mutate(pid_Democrat_c   = ifelse(Q21==1,1,0),
+         pid_Republican_c = ifelse(Q21==3,1,0)) %>%
+ # Race factor (baseline = White)
+  mutate(race_f = case_when(
+    S2_Race_Prime==1 ~ "White",
+    S2_Race_Prime==2 ~ "Hispanic",
+    S2_Race_Prime==3 ~ "Black",
+    S2_Race_Prime %in% c(4,7,8) ~ "Asian/Pacific",
+    S2_Race_Prime %in% c(5,6) ~ "Other")) %>%
+  mutate(race_f = factor(race_f, levels=c("White","Black","Hispanic","Asian/Pacific","Other")),
+# Age Categories (baseline 18-29)
+         age_cat = case_when(
+           S5_Age==2 ~ "18-29", S5_Age==3 ~ "30-39", S5_Age==4 ~ "40-49",
+           S5_Age==5 ~ "50-59", S5_Age==6 ~ "60-69", S5_Age==7 ~ "70+"),
+         age_cat = factor(age_cat, levels=c("18-29","30-39","40-49","50-59","60-69","70+")),
+# Gender (baseline Male)
+         gender_f = ifelse(S3b==1,"Male","Female"),
+         gender_f = factor(gender_f,levels=c("Male","Female")),
+# Education, Income, Community, Ideology, Region
+         education_f=factor(S13),
+         community_type_f = case_when(
+           S14 %in% c(1,2)~"Urban", S14 %in% c(3,4)~"Suburban/SmallTown",
+           S14==5~"Rural"),
+         community_type_f=factor(community_type_f,
+           levels=c("Suburban/SmallTown","Urban","Rural")),
+         income_cat_f = case_when(
+           Q813 %in% 1:3 ~ "Low", Q813 %in% 4:5 ~ "Lower-Middle",
+           Q813 %in% 6:9 ~ "Middle", Q813 %in% 10:11 ~ "Upper-Middle",
+           Q813==12 ~ "High"),
+         income_cat_f=factor(income_cat_f,
+           levels=c("Low","Lower-Middle","Middle","Upper-Middle","High")),
+         ideology_f = case_when(
+           Q43 %in% c(1,2)~"Liberal",Q43==3~"Moderate",Q43 %in% c(4,5)~"Conservative"),
+         region_f = case_when(
+           S4 %in% c(7,20,22,30,31,33,39,40,46)~"NE",
+           S4 %in% c(14,15,16,17,23,24,26,28,35,36,42,50)~"MidWest",
+           S4 %in% c(2,4,8,9,10,11,18,19,21,25,34,37,41,43,44,47,49)~"South",
+           S4 %in% c(1,3,5,6,12,13,27,29,32,38,45,48,51)~"West"))
+bw_all <- bw_all %>%
+  select(-starts_with("race_prop_")) %>%
+  left_join(district_race_wide, by = "district")
+------------------------
+#Cleaning District PID Dataset 
+  district_pid_clean2 <- district_pid_clean %>%
+  mutate(
+    pid_group = case_when(
+      pid %in% c("Democrat", "DEM", "1") ~ "Dem",
+      pid %in% c("Republican", "GOP", "3") ~ "Rep",
+      pid %in% c("Independent", "No party", "2") ~ "Ind",
+      TRUE ~ "Other"
+    )
+  ) %>%
+  group_by(district, pid_group) %>%
+  summarise(pid_prop = sum(pid_prop, na.rm = TRUE), .groups = "drop")
+
+district_pid_wide <- district_pid_clean2 %>%
+  tidyr::pivot_wider(
+    names_from = pid_group,
+    values_from = pid_prop,
+    names_prefix = "pid_prop_"
+  )
+-------------------
+#Merging 
+  bw_all <- bw_all %>%
+  left_join(district_race_wide, by = "district") %>%
+  left_join(district_pid_wide,  by = "district")
+summary(bw_all %>% select(starts_with("race_prop_")))
+summary(bw_all %>% select(starts_with("pid_prop_")))
+library(dplyr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+xwalk_clean <- xwalk %>%
+  separate(BLOCKID.CD116, into = c("blockid", "CD116"), sep = ",") %>%
+  mutate(TRACT = substr(blockid, 6, 11))   
+zip_district <- ZIP_Tract %>%
+  left_join(xwalk_clean, by = "TRACT") %>%
+  select(ZIP, CD116) %>%
+  distinct(ZIP, .keep_all = TRUE)CMPS_2020$zipcode <- sprintf("%05d", as.numeric(CMPS_2020$zipcode))
+
+CMPS_2020_withDistricts <- CMPS_2020 %>%
+  left_join(zip_district, by = c("zipcode" = "ZIP"))
+CMPS_2020$zipcode <- sprintf("%05d", as.numeric(CMPS_2020$zipcode))
+ZIP_Tract$ZIP       <- sprintf("%05d", as.numeric(ZIP_Tract$ZIP))
+zip_district <- ZIP_Tract %>%
+  left_join(xwalk_clean, by = "TRACT") %>%
+  select(ZIP, CD116) %>%
+  distinct(ZIP, CD116)   # keep unique ZIP → district pairs
+CMPS_2020_withDistricts <- CMPS_2020 %>%
+  left_join(zip_district, by = c("zipcode" = "ZIP"))
+library(dplyr)
+library(tidyr)
+library(purrr)
+# 1. District Racial Proportions
+district_race <- CMPS_2020_withDistricts %>%
+  filter(!is.na(CD116), !is.na(S2_Race_Prime)) %>%   # only rows with districts and race
+  mutate(
+    race_label = case_when(
+      S2_Race_Prime == 1 ~ "White",
+      S2_Race_Prime == 2 ~ "Hispanic",
+      S2_Race_Prime == 3 ~ "Black",
+      S2_Race_Prime %in% c(4, 7, 8) ~ "Asian/Pacific",
+      S2_Race_Prime %in% c(5, 6) ~ "Other",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  group_by(CD116, race_label) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(CD116) %>%
+  mutate(prop = n / sum(n)) %>%
+  select(CD116, race_label, prop)
+
+# Pivot to wide format
+district_race_wide <- district_race %>%
+  pivot_wider(
+    names_from = race_label,
+    values_from = prop,
+    names_prefix = "race_prop_",
+    values_fill = 0
+  )
+# 2. District Partisanship Proportions
+district_pid <- CMPS_2020_withDistricts %>%
+  filter(!is.na(CD116), Q21 %in% c(1,2,3)) %>%   # Q21 = PID
+  mutate(
+    pid_label = case_when(
+      Q21 == 1 ~ "Democrat",
+      Q21 == 2 ~ "Independent",
+      Q21 == 3 ~ "Republican",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  group_by(CD116, pid_label) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(CD116) %>%
+  mutate(prop = n / sum(n)) %>%
+  select(CD116, pid_label, prop)
+district_pid_wide <- district_pid %>%
+  pivot_wider(
+    names_from = pid_label,
+    values_from = prop,
+    names_prefix = "pid_prop_",
+    values_fill = 0
+  )
+instruments_df <- district_race_wide %>%
+  left_join(district_pid_wide, by = "CD116")
+library(dplyr)
+
+district_race_wide <- district_race_wide %>%
+  rename(
+    White = race_1,
+    Hispanic = race_2,
+    Black = race_3,
+    Asian = race_4,
+    American_Indian = race_5,
+    Arab = race_6,
+    Other = race_8
+  )
+instruments_df <- district_race_wide %>%
+  left_join(district_pid_wide, by = "district")
+# Make sure baselines are set
+# Race: White first
+bw_all$race_f <- relevel(bw_all$race_f, ref = "White")
+
+# Gender: Male first
+bw_all$gender_f <- relevel(bw_all$gender_f, ref = "Male")
+
+# Community: Suburban/SmallTown first
+bw_all$community_type_f <- relevel(bw_all$community_type_f, ref = "Suburban/SmallTown")
+
+# Income: Low first
+bw_all$income_cat_f <- relevel(bw_all$income_cat_f, ref = "Low")
+
+first_stage_numeric <- lm(
+  Q261 ~ race_prop_White + race_prop_Black + race_prop_Hispanic + race_prop_Asian_Pacific + race_prop_Other +
+    pid_prop_Dem + pid_prop_Rep + pid_prop_Ind +
+    race_f + gender_f + community_type_f + income_cat_f + S5_Age,  # numeric/labelled age
+  data = bw_all
+)
+----------Stargazer full model--------------
+  library(stargazer)
+
+stargazer(first_stage,
+          type = "text",               # change to "html" or "latex" if needed
+          title = "First-Stage Regression: Skin Tone ~ District Race & PID Composition",
+          dep.var.labels = "Skin Tone (Q261)",
+          covariate.labels = c(
+            "Race Prop: White",
+            "Race Prop: Black",
+            "Race Prop: Hispanic",
+            "Race Prop: Asian/Pacific",
+            "Race Prop: Other",
+            "PID Prop: Democrat",
+            "PID Prop: Republican",
+            "PID Prop: Independent",
+            "Race: Black",
+            "Race: Hispanic",
+            "Race: Asian/Pacific",
+            "Race: Other",
+            "Gender: Female",
+            "Community: Urban",
+            "Community: Rural",
+            "Income: Lower-Middle",
+            "Income: Middle",
+            "Income: Upper-Middle",
+            "Income: High",
+            "Age"
+          ),
+          keep.stat = c("n", "rsq", "adj.rsq"),
+          digits = 3,
+          no.space = TRUE,
+          single.row = TRUE,
+          star.char = c("*", "**", "***"),
+          star.cutoffs = c(0.1, 0.05, 0.01))
+library(stargazer)
+library(car)
+
+anova_res <- car::Anova(first_stage_model, type = "II")
+
+anova_df <- data.frame(
+  Variable = rownames(anova_res),
+  LR_Chisq = anova_res$`LR Chisq`,
+  Df = anova_res$Df,
+  Pr_GT_Chisq = anova_res$`Pr(>Chisq)`
+)
+
+anova_df$Signif <- cut(
+  anova_df$Pr_GT_Chisq,
+  breaks = c(-Inf, 0.001, 0.01, 0.05, 0.1, Inf),
+  labels = c("***", "**", "*", ".", "")
+)
+
+stargazer(
+  anova_df,
+  summary = FALSE,
+  type = "html",
+  title = "First-Stage Type II Analysis of Deviance (Logit)",
+  out = "first_stage_anova.html"
+)
+library(AER)
+
+iv_strength <- ivreg(
+  Q21.x ~ race_f_num + controls |
+          Q261.x + controls,
+  data = bw_fs
+)
+library(AER)
+
+bw_iv_2sls <- ivreg(
+  pid_numeric ~
+    race_f +
+    Q261.x +
+    age_cat +
+    gender_f +
+    education_cat +
+    community_cat +
+    income_cat_f +
+    pid_self_c +
+    ideology_f +
+    region_f +
+    S2_M.x +
+    pid_Democrat_c +
+    pid_Republican_c |
+    
+    Q261.x +
+    prop_white +
+    prop_black +
+    age_cat +
+    gender_f +
+    education_cat +
+    community_cat +
+    income_cat_f +
+    pid_self_c +
+    ideology_f +
+    region_f +
+    S2_M.x +
+    pid_Democrat_c +
+    pid_Republican_c,
+  
+  data = bw_all_sample
+)
+
+summary(bw_iv_2sls, diagnostics = TRUE)
